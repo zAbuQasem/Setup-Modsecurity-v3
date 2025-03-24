@@ -1,69 +1,102 @@
-#!/bin/bash 
+#!/bin/bash
 
 set -o pipefail
+
+
+# Color definitions
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Setup logging
+LOG_FILE="/tmp/modsecurity_install_$(date +%Y%m%d_%H%M%S).log"
+touch "$LOG_FILE"
+
+# Logging function
+log() {
+    local level="$1"
+    local message="$2"
+    local color="$NC"
+    
+    # Set color based on log level
+    case "$level" in
+        "INFO") color="$GREEN" ;;
+        "WARN") color="$YELLOW" ;;
+        "ERROR") color="$RED" ;;
+        "DEBUG") color="$BLUE" ;;
+    esac
+    
+    # Log to console with color
+    echo -e "${color}[$level] $message${NC}"
+    
+    # Log to file without color codes
+    echo "[$(date '+%Y-%m-%d %H:%M')] [$level] $message" >> "$LOG_FILE"
+}
+
+# Function to execute command with error handling
+execute_command() {
+    local cmd="$1"
+    local error_msg="$2"
+    local output
+    
+    log "DEBUG" "Executing: $cmd"
+    output=$(eval "$cmd" 2>&1)
+    local status=$?
+    
+    if [ $status -ne 0 ]; then
+        log "ERROR" "$error_msg"
+        log "ERROR" "Command output: $output"
+        log "ERROR" "Command failed with status $status. Check log: $LOG_FILE"
+        exit 1
+    else
+        log "DEBUG" "Command executed successfully"
+        return 0
+    fi
+}
 
 # Environment variables
 export DEBIAN_FRONTEND=noninteractive
 export WORKDIR=/opt
 # Default AUTO_INSTALL to false, but check for automated environments
 export AUTO_INSTALL=${AUTO_INSTALL:-false}
+# Default KEEP_BUILD_FILES to false
+export KEEP_BUILD_FILES=${KEEP_BUILD_FILES:-false}
 
 # Detect if running in an automated environment (CI/CD)
 if [ -n "${CI}" ] || [ -n "${GITHUB_ACTIONS}" ] || [ -n "${JENKINS_URL}" ] || [ -n "${TRAVIS}" ] || [ -n "${GITLAB_CI}" ]; then
     export AUTO_INSTALL=true
-    echo "Detected automated environment, setting AUTO_INSTALL=true"
+    log "INFO" "Detected automated environment, setting AUTO_INSTALL=true"
 fi
 
 # Check if the user is root
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Error: This script must be run as root"
+    log "ERROR" "This script must be run as root"
     exit 1
 fi
 
 # Function to compare version strings
 compare_versions() {
-    # Usage: compare_versions "version1" "version2"
-    # Returns: 0 if version1 >= version2, 1 otherwise
-    
-    if [[ "$1" == "$2" ]]; then
-        return 0
-    fi
-    
-    local IFS=.
-    local i ver1=("${1}") ver2=("${2}")
-    
-    # Fill empty fields with zeros
-    for ((i=${#ver1[@]}; i<${#ver2[@]}; i++)); do
-        ver1[i]=0
-    done
-    
-    for ((i=0; i<${#ver1[@]}; i++)); do
-        if [[ -z ${ver2[i]} ]]; then
-            ver2[i]=0
-        fi
-        
-        if ((10#${ver1[i]} > 10#${ver2[i]})); then
-            return 0
-        fi
-        
-        if ((10#${ver1[i]} < 10#${ver2[i]})); then
-            return 1
-        fi
-    done
-    
-    return 0
+    command -v dc &>/dev/null || apt update && apt install -y dc
+    # Usage: compare_versions "${current_version}" "${required_version}"
+    # Returns: 0 if current_version < required_version, 1 otherwise
+    local v1="$1"
+    local v2="$2"
+
+    echo "${v1}<${v2}" | dc
 }
 
 # Check Ubuntu version and architecture
 check_system_requirements() {
     # Check if running on Ubuntu
     if [ ! -f /etc/lsb-release ] || ! grep -q "Ubuntu" /etc/lsb-release; then
-        echo "Error: This script requires Ubuntu operating system"
+        log "ERROR" "This script requires Ubuntu operating system"
         exit 1
     fi
     
     # Get Ubuntu version
-    ubuntu_version=$(lsb_release -rs)
+    ubuntu_version=$(grep "DISTRIB_RELEASE" /etc/lsb-release | cut -d= -f2)
     
     # Extract major and minor version
     ubuntu_major_version=$(echo "${ubuntu_version}" | cut -d. -f1)
@@ -74,14 +107,14 @@ check_system_requirements() {
        [[ "${ubuntu_major_version}" -eq 20 && "${ubuntu_minor_version}" -lt 4 ]] || \
        [[ "${ubuntu_major_version}" -gt 22 ]] || \
        [[ "${ubuntu_major_version}" -eq 22 && "${ubuntu_minor_version}" -gt 4 ]]; then
-        echo "Error: This script requires Ubuntu version between 20.04 and 22.04 (current: ${ubuntu_version})"
+        log "ERROR" "This script requires Ubuntu version between 20.04 and 22.04 (current: ${ubuntu_version})"
         exit 1
     fi
     
     # Check architecture
     arch=$(uname -m)
     if [ "${arch}" != "x86_64" ]; then
-        echo "Error: This script requires x86_64 architecture (current: ${arch})"
+        log "ERROR" "This script requires x86_64 architecture (current: ${arch})"
         exit 1
     fi
     
@@ -91,38 +124,43 @@ check_system_requirements() {
         required_version="1.21.5"
         
         if ! compare_versions "${nginx_version}" "${required_version}"; then
-            echo "Error: This script requires Nginx version >= ${required_version} (current: ${nginx_version})"
+            log "ERROR" "This script requires Nginx version >= ${required_version} (current: ${nginx_version})"
             exit 1
         fi
         
-        echo "Nginx version check passed: ${nginx_version}"
+        log "INFO" "Nginx version check passed: ${nginx_version}"
     else
-        echo "Nginx not installed yet. Latest version will be installed"
+        log "INFO" "Nginx not installed yet. Latest version will be installed"
     fi
     
-    echo "System check passed: Ubuntu ${ubuntu_version} on ${arch} architecture"
+    log "INFO" "System check passed: Ubuntu ${ubuntu_version} on ${arch} architecture"
 }
 
 install_dependencies() {
+    log "INFO" "Installing dependencies..."
     apt-get update -y && apt-get upgrade -y
-    apt-get install -y apt-utils autoconf automake build-essential git libcurl4-openssl-dev libgeoip-dev liblmdb-dev libpcre3-dev libssl-dev libtool libxml2-dev libyajl-dev pkgconf wget zlib1g-dev software-properties-common
+    apt-get install -y apt-utils autoconf automake build-essential git libcurl4-openssl-dev libgeoip-dev liblmdb-dev libpcre3-dev libssl-dev libtool libxml2-dev libyajl-dev pkgconf wget zlib1g-dev software-properties-common g++
+    log "INFO" "Dependencies installed successfully"
 }
 
 install_modsecurity() {
+    log "INFO" "Installing ModSecurity..."
     git clone https://github.com/owasp-modsecurity/ModSecurity.git "${WORKDIR}/ModSecurity"
     cd "${WORKDIR}/ModSecurity" || exit
 
-    git submodule init
-    git submodule update
+    execute_command "git submodule init" "Failed to initialize git submodules"
+    execute_command "git submodule update" "Failed to update git submodules"
 
-    ./build.sh
-    ./configure
+    execute_command "./build.sh" "Failed to execute build.sh for ModSecurity"
+    execute_command "./configure" "Failed to configure ModSecurity"
 
-    make
-    make install
+    execute_command "make" "Failed to compile ModSecurity"
+    execute_command "make install" "Failed to install ModSecurity"
 
     # Install ModSecurity-nginx Connector
-    git clone https://github.com/owasp-modsecurity/ModSecurity-nginx.git "${WORKDIR}/ModSecurity-nginx"
+    log "INFO" "Installing ModSecurity-nginx connector..."
+    execute_command "git clone https://github.com/owasp-modsecurity/ModSecurity-nginx.git \"${WORKDIR}/ModSecurity-nginx\"" "Failed to clone ModSecurity-nginx repository"
+    log "INFO" "ModSecurity installation completed"
 }
 
 install_nginx_with_modsecurity() {
@@ -135,13 +173,13 @@ install_nginx_with_modsecurity() {
         current_version="$(nginx -v 2>&1 | grep -o '[0-9.]*$')"
         
         if compare_versions "${current_version}" "${required_version}"; then
-            echo "Using existing Nginx version: ${current_version}"
+            log "INFO" "Using existing Nginx version: ${current_version}"
             nginx_version="${current_version}"
         else
-            echo "Existing Nginx version ${current_version} does not meet minimum requirements (>= ${required_version})"
+            log "WARN" "Existing Nginx version ${current_version} does not meet minimum requirements (>= ${required_version})"
             
             if [ "${AUTO_INSTALL}" = "true" ]; then
-                echo "AUTO_INSTALL is enabled. Will install the latest version."
+                log "INFO" "AUTO_INSTALL is enabled. Will install the latest version."
                 should_install=true
             else
                 read -p "Would you like to install the latest version? (y/n): " -n 1 -r
@@ -149,16 +187,16 @@ install_nginx_with_modsecurity() {
                 if [[ $REPLY =~ ^[Yy]$ ]]; then
                     should_install=true
                 else
-                    echo "Exiting as Nginx version requirements are not met."
+                    log "ERROR" "Exiting as Nginx version requirements are not met."
                     exit 1
                 fi
             fi
         fi
     else
-        echo "Nginx is not installed"
+        log "INFO" "Nginx is not installed"
         
         if [ "${AUTO_INSTALL}" = "true" ]; then
-            echo "AUTO_INSTALL is enabled. Will install the latest version."
+            log "INFO" "AUTO_INSTALL is enabled. Will install the latest version."
             should_install=true
         else
             read -p "Would you like to install the latest version? (y/n): " -n 1 -r
@@ -166,7 +204,7 @@ install_nginx_with_modsecurity() {
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 should_install=true
             else
-                echo "Exiting as Nginx is required but not installed."
+                log "ERROR" "Exiting as Nginx is required but not installed."
                 exit 1
             fi
         fi
@@ -174,8 +212,8 @@ install_nginx_with_modsecurity() {
     
     # Install nginx if needed
     if [ "${should_install}" = "true" ]; then
-        echo "Installing latest Nginx version..."
-        add-apt-repository ppa:ondrej/nginx -y || { echo "Failed to add PPA"; exit 1; }
+        log "INFO" "Installing latest Nginx version..."
+        add-apt-repository ppa:ondrej/nginx -y || { log "ERROR" "Failed to add PPA"; exit 1; }
         apt update
         apt install nginx -y
         systemctl enable nginx
@@ -184,43 +222,43 @@ install_nginx_with_modsecurity() {
         
         # Verify the installed version meets requirements
         if ! compare_versions "${nginx_version}" "${required_version}"; then
-            echo "Error: The installed Nginx version ${nginx_version} does not meet minimum requirements (>= ${required_version})"
+            log "ERROR" "The installed Nginx version ${nginx_version} does not meet minimum requirements (>= ${required_version})"
             exit 1
         fi
         
-        echo "Successfully installed Nginx version: ${nginx_version}"
+        log "INFO" "Successfully installed Nginx version: ${nginx_version}"
     fi
     
     # At this point, nginx_version should be set and satisfies requirements
-    echo "Proceeding with Nginx version: ${nginx_version}"
+    log "INFO" "Proceeding with Nginx version: ${nginx_version}"
     
-    cd "${WORKDIR}" && wget "https://nginx.org/download/nginx-${nginx_version}.tar.gz"
-    tar -xzvf "${WORKDIR}/nginx-${nginx_version}.tar.gz"
+    execute_command "cd \"${WORKDIR}\" && wget \"https://nginx.org/download/nginx-${nginx_version}.tar.gz\"" "Failed to download Nginx source"
+    execute_command "cd \"${WORKDIR}\" && tar -xzvf \"${WORKDIR}/nginx-${nginx_version}.tar.gz\"" "Failed to extract Nginx source"
 
-    cd "${WORKDIR}/nginx-${nginx_version}" || exit
+    cd "${WORKDIR}/nginx-${nginx_version}" || { log "ERROR" "Failed to change directory to Nginx source"; exit 1; }
 
     # Build nginx with ModSecurity module
-    ./configure --with-compat --add-dynamic-module="${WORKDIR}/ModSecurity-nginx"
-    make
-    make modules
+    execute_command "./configure --with-compat --add-dynamic-module=\"${WORKDIR}/ModSecurity-nginx\"" "Failed to configure Nginx with ModSecurity"
+    execute_command "make" "Failed to compile Nginx"
+    execute_command "make modules" "Failed to compile Nginx modules"
 
     # Copy modules and configuration files
-    cp objs/ngx_http_modsecurity_module.so /etc/nginx/modules-enabled/
-    cp "${WORKDIR}/ModSecurity/modsecurity.conf-recommended" /etc/nginx/modsecurity.conf
-    cp "${WORKDIR}/ModSecurity/unicode.mapping" /etc/nginx/unicode.mapping
+    execute_command "cp objs/ngx_http_modsecurity_module.so /etc/nginx/modules-enabled/" "Failed to copy ModSecurity module to Nginx modules directory"
+    execute_command "cp \"${WORKDIR}/ModSecurity/modsecurity.conf-recommended\" /etc/nginx/modsecurity.conf" "Failed to copy ModSecurity configuration"
+    execute_command "cp \"${WORKDIR}/ModSecurity/unicode.mapping\" /etc/nginx/unicode.mapping" "Failed to copy unicode mapping file"
 }
 
 install_owasp_crs() {
-    echo "Installing OWASP CoreRuleSet..."
+    log "INFO" "Installing OWASP CoreRuleSet..."
     
     # Clone the CoreRuleSet repository
-    git clone https://github.com/coreruleset/coreruleset.git /etc/nginx/owasp-crs
+    execute_command "git clone https://github.com/coreruleset/coreruleset.git /etc/nginx/owasp-crs" "Failed to clone OWASP CoreRuleSet repository"
     
     # Copy the example configuration
-    cp /etc/nginx/owasp-crs/crs-setup.conf{.example,}
+    execute_command "cp /etc/nginx/owasp-crs/crs-setup.conf{.example,}" "Failed to copy CRS setup configuration"
     
     # Update modsecurity.conf to include the CRS rules
-    echo "Updating ModSecurity configuration to load OWASP CRS..."
+    log "INFO" "Updating ModSecurity configuration to load OWASP CRS..."
     
     # Append CRS configuration to modsecurity.conf if not already there
     if ! grep -q "Include owasp-crs/crs-setup.conf" /etc/nginx/modsecurity.conf; then
@@ -234,32 +272,81 @@ Include owasp-crs/crs-setup.conf
 Include owasp-crs/rules/*.conf
 EOF
     else
-        echo "OWASP CRS configuration already exists in modsecurity.conf"
+        log "WARN" "OWASP CRS configuration already exists in modsecurity.conf"
     fi
     
     # Test Nginx configuration
-    echo "Testing Nginx configuration..."
+    log "INFO" "Testing Nginx configuration..."
     if nginx -t; then
-        echo "Nginx configuration test successful"
+        log "INFO" "Nginx configuration test successful"
         
         # Restart Nginx
-        echo "Restarting Nginx service..."
-        service nginx restart
+        log "INFO" "Restarting Nginx service..."
+        execute_command "service nginx restart" "Failed to restart Nginx service"
         
-        echo "OWASP CoreRuleSet installation and configuration completed successfully"
+        log "INFO" "OWASP CoreRuleSet installation and configuration completed successfully"
     else
-        echo "Error: Nginx configuration test failed. Please check your configuration."
+        log "ERROR" "Nginx configuration test failed. Please check your configuration."
         exit 1
     fi
 }
 
+cleanup() {
+    log "INFO" "Starting cleanup process..."
+    
+    # Only clean build files if KEEP_BUILD_FILES is not true
+    if [ "${KEEP_BUILD_FILES}" != "true" ]; then
+        log "INFO" "Removing build files..."
+        
+        # Files to remove
+        local files_to_remove=(
+            "${WORKDIR}/nginx-*.tar.gz"
+            "${WORKDIR}/ModSecurity"
+            "${WORKDIR}/ModSecurity-nginx"
+            "${WORKDIR}/nginx-*"
+        )
+        
+        for file in "${files_to_remove[@]}"; do
+            if ls "${file}" 1> /dev/null 2>&1; then
+                execute_command "rm -rf $file" "Failed to remove $file"
+            else
+                log "DEBUG" "File/directory not found: $file"
+            fi
+        done
+        
+        log "INFO" "Build files removed successfully"
+    else
+        log "INFO" "Skipping build file cleanup as KEEP_BUILD_FILES=true"
+    fi
+    
+    # Clean apt cache
+    log "INFO" "Cleaning apt cache..."
+    execute_command "apt-get clean" "Failed to clean apt cache"
+    execute_command "apt-get autoremove -y" "Failed to autoremove packages"
+    
+    log "INFO" "Cleanup completed successfully"
+}
 
 main() {
+    log "INFO" "Starting ModSecurity v3 installation"
+    log "INFO" "Log file: $LOG_FILE"
+    
+    # Display configuration
+    log "INFO" "Configuration:"
+    log "INFO" "- WORKDIR: $WORKDIR"
+    log "INFO" "- AUTO_INSTALL: $AUTO_INSTALL"
+    log "INFO" "- KEEP_BUILD_FILES: $KEEP_BUILD_FILES"
+    
     check_system_requirements
-   install_dependencies
-   install_modsecurity
-   install_nginx_with_modsecurity
-   install_owasp_crs
+    install_dependencies
+    install_modsecurity
+    install_nginx_with_modsecurity
+    install_owasp_crs
+    
+    # Perform cleanup
+    cleanup
+    
+    log "INFO" "ModSecurity v3 installation completed successfully"
 }
 
 main

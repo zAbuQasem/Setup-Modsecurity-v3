@@ -108,9 +108,6 @@ If you encounter issues:
 - Review and customize the rule set according to your security needs
 - Regularly update the Core Rule Set to protect against new vulnerabilities
 
-## License
-
-[Insert your license information here]
 
 ## Contributing
 
