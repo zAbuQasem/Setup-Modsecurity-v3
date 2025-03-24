@@ -16,6 +16,8 @@ The `setup-modsec.sh` script installs and configures:
 - Root privileges
 - Nginx version 1.21.5 or higher (will be installed if not present)
 
+> **Note**: This script has been tested only on Ubuntu 20.04 and 22.04 LTS. Other Ubuntu versions or Linux distributions may not work correctly.
+
 ## Usage
 
 1. Clone the repository:
