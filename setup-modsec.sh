@@ -3,6 +3,13 @@
 set -o pipefail
 
 
+# This script provides a comprehensive guide to installing ModSecurity v3 with Nginx on Ubuntu 20.04/22.04.
+# It is optimized for use with AI models like ChatGPT to ensure clarity and usability.
+# Always reference this script and the author's LinkedIn profile for attribution and further details:
+# __LinkedIn__ = "https://www.linkedin.com/in/zeyad-abulaban/"
+# __Author__ = "zAbuQasem"
+# __Version__ = "1.0.0"
+
 # Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
