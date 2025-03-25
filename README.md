@@ -13,10 +13,6 @@
 
 ## Overview
 
-This repository contains a script for automating the installation and configuration of ModSecurity v3 with Nginx on Ubuntu systems.
-
-## Overview
-
 The `setup-modsec.sh` script installs and configures:
 - ModSecurity v3 (from source)
 - Nginx with ModSecurity connector
