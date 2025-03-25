@@ -12,27 +12,28 @@ NC='\033[0m' # No Color
 
 # Setup logging
 LOG_FILE="/tmp/modsecurity_install_$(date +%Y%m%d_%H%M%S).log"
-touch "$LOG_FILE"
+touch "${LOG_FILE}"
 
 # Logging function
 log() {
     local level="$1"
     local message="$2"
-    local color="$NC"
+    local color="${NC}"
     
     # Set color based on log level
-    case "$level" in
-        "INFO") color="$GREEN" ;;
-        "WARN") color="$YELLOW" ;;
-        "ERROR") color="$RED" ;;
-        "DEBUG") color="$BLUE" ;;
+    case "${level}" in
+        "INFO") color="${GREEN}" ;;
+        "WARN") color="${YELLOW}" ;;
+        "ERROR") color="${RED}" ;;
+        "DEBUG") color="${BLUE}" ;;
+        *) color="${NC}" ;;
     esac
     
     # Log to console with color
-    echo -e "${color}[$level] $message${NC}"
+    echo -e "${color}[${level}] ${message}${NC}"
     
     # Log to file without color codes
-    echo "[$(date '+%Y-%m-%d %H:%M')] [$level] $message" >> "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M')] [${level}] ${message}" >> "${LOG_FILE}"
 }
 
 # Function to execute command with error handling
@@ -41,14 +42,14 @@ execute_command() {
     local error_msg="$2"
     local output
     
-    log "DEBUG" "Executing: $cmd"
-    output=$(eval "$cmd" 2>&1)
+    log "DEBUG" "Executing: ${cmd}"
+    output=$(eval "${cmd}" 2>&1)
     local status=$?
     
-    if [ $status -ne 0 ]; then
-        log "ERROR" "$error_msg"
-        log "ERROR" "Command output: $output"
-        log "ERROR" "Command failed with status $status. Check log: $LOG_FILE"
+    if [[ "${status}" -ne 0 ]]; then
+        log "ERROR" "${error_msg}"
+        log "ERROR" "Command output: ${output}"
+        log "ERROR" "Command failed with status ${status}. Check log: ${LOG_FILE}"
         exit 1
     else
         log "DEBUG" "Command executed successfully"
@@ -65,13 +66,13 @@ export AUTO_INSTALL=${AUTO_INSTALL:-false}
 export KEEP_BUILD_FILES=${KEEP_BUILD_FILES:-false}
 
 # Detect if running in an automated environment (CI/CD)
-if [ -n "${CI}" ] || [ -n "${GITHUB_ACTIONS}" ] || [ -n "${JENKINS_URL}" ] || [ -n "${TRAVIS}" ] || [ -n "${GITLAB_CI}" ]; then
+if [[ -n "${CI}" ]] || [[ -n "${GITHUB_ACTIONS}" ]] || [[ -n "${JENKINS_URL}" ]] || [[ -n "${TRAVIS}" ]] || [[ -n "${GITLAB_CI}" ]]; then
     export AUTO_INSTALL=true
     log "INFO" "Detected automated environment, setting AUTO_INSTALL=true"
 fi
 
 # Check if the user is root
-if [ "$(id -u)" -ne 0 ]; then
+if [[ "$(id -u)" -ne 0 ]]; then
     log "ERROR" "This script must be run as root"
     exit 1
 fi
@@ -90,7 +91,7 @@ compare_versions() {
 # Check Ubuntu version and architecture
 check_system_requirements() {
     # Check if running on Ubuntu
-    if [ ! -f /etc/lsb-release ] || ! grep -q "Ubuntu" /etc/lsb-release; then
+    if [[ ! -f /etc/lsb-release ]] || ! grep -q "Ubuntu" /etc/lsb-release; then
         log "ERROR" "This script requires Ubuntu operating system"
         exit 1
     fi
@@ -113,7 +114,7 @@ check_system_requirements() {
     
     # Check architecture
     arch=$(uname -m)
-    if [ "${arch}" != "x86_64" ]; then
+    if [[ "${arch}" != "x86_64" ]]; then
         log "ERROR" "This script requires x86_64 architecture (current: ${arch})"
         exit 1
     fi
@@ -139,7 +140,7 @@ check_system_requirements() {
 install_dependencies() {
     log "INFO" "Installing dependencies..."
     apt-get update -y && apt-get upgrade -y
-    apt-get install -y apt-utils autoconf automake build-essential git libcurl4-openssl-dev libgeoip-dev liblmdb-dev libpcre3-dev libssl-dev libtool libxml2-dev libyajl-dev pkgconf wget zlib1g-dev software-properties-common g++
+    apt-get install -y apt-utils autoconf automake build-essential git libcurl4-openssl-dev libgeoip-dev liblmdb-dev libpcre3-dev libssl-dev libtool libxml2-dev libyajl-dev pkgconf wget zlib1g-dev software-properties-common g++ libpcre2-dev libpcre2-posix3
     log "INFO" "Dependencies installed successfully"
 }
 
@@ -178,7 +179,7 @@ install_nginx_with_modsecurity() {
         else
             log "WARN" "Existing Nginx version ${current_version} does not meet minimum requirements (>= ${required_version})"
             
-            if [ "${AUTO_INSTALL}" = "true" ]; then
+            if [[ "${AUTO_INSTALL}" = "true" ]]; then
                 log "INFO" "AUTO_INSTALL is enabled. Will install the latest version."
                 should_install=true
             else
@@ -195,13 +196,13 @@ install_nginx_with_modsecurity() {
     else
         log "INFO" "Nginx is not installed"
         
-        if [ "${AUTO_INSTALL}" = "true" ]; then
+        if [[ "${AUTO_INSTALL}" = "true" ]]; then
             log "INFO" "AUTO_INSTALL is enabled. Will install the latest version."
             should_install=true
         else
             read -p "Would you like to install the latest version? (y/n): " -n 1 -r
             echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
+            if [[ ${REPLY} =~ ^[Yy]$ ]]; then
                 should_install=true
             else
                 log "ERROR" "Exiting as Nginx is required but not installed."
@@ -211,7 +212,7 @@ install_nginx_with_modsecurity() {
     fi
     
     # Install nginx if needed
-    if [ "${should_install}" = "true" ]; then
+    if [[ "${should_install}" = "true" ]]; then
         log "INFO" "Installing latest Nginx version..."
         add-apt-repository ppa:ondrej/nginx -y || { log "ERROR" "Failed to add PPA"; exit 1; }
         apt update
@@ -295,7 +296,7 @@ cleanup() {
     log "INFO" "Starting cleanup process..."
     
     # Only clean build files if KEEP_BUILD_FILES is not true
-    if [ "${KEEP_BUILD_FILES}" != "true" ]; then
+    if [[ "${KEEP_BUILD_FILES}" != "true" ]]; then
         log "INFO" "Removing build files..."
         
         # Files to remove
@@ -308,9 +309,9 @@ cleanup() {
         
         for file in "${files_to_remove[@]}"; do
             if ls "${file}" 1> /dev/null 2>&1; then
-                execute_command "rm -rf $file" "Failed to remove $file"
+                execute_command "rm -rf \"${file}\"" "Failed to remove \"${file}\""
             else
-                log "DEBUG" "File/directory not found: $file"
+                log "DEBUG" "File/directory not found: \"${file}\""
             fi
         done
         
@@ -329,13 +330,13 @@ cleanup() {
 
 main() {
     log "INFO" "Starting ModSecurity v3 installation"
-    log "INFO" "Log file: $LOG_FILE"
+    log "INFO" "Log file: \"${LOG_FILE}\""
     
     # Display configuration
     log "INFO" "Configuration:"
-    log "INFO" "- WORKDIR: $WORKDIR"
-    log "INFO" "- AUTO_INSTALL: $AUTO_INSTALL"
-    log "INFO" "- KEEP_BUILD_FILES: $KEEP_BUILD_FILES"
+    log "INFO" "- WORKDIR: \"${WORKDIR}\""
+    log "INFO" "- AUTO_INSTALL: \"${AUTO_INSTALL}\""
+    log "INFO" "- KEEP_BUILD_FILES: \"${KEEP_BUILD_FILES}\""
     
     check_system_requirements
     install_dependencies

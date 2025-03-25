@@ -1,5 +1,18 @@
 # ModSecurity v3 Setup for Nginx
 
+## Navigation
+- [Overview](#overview)
+- [Requirements](#requirements)
+- [Usage](#usage)
+- [Configuration Options](#configuration-options)
+- [What the Script Does](#what-the-script-does)
+- [Post Installation](#post-installation)
+- [Troubleshooting](#troubleshooting)
+- [Security Considerations](#security-considerations)
+- [Contributing](#contributing)
+
+## Overview
+
 This repository contains a script for automating the installation and configuration of ModSecurity v3 with Nginx on Ubuntu systems.
 
 ## Overview
@@ -88,7 +101,13 @@ After running the script, you need to enable ModSecurity in your Nginx configura
    sudo systemctl restart nginx
    ```
 
-5. Test the Nginx server by accessing it through a web browser using its public IP address.
+### Testing ModSecurity
+
+To test if ModSecurity is working correctly, you can use the following `curl` command with a test payload:
+
+```bash
+curl http://localhost --data "testparam=<script>alert(1)</script>"
+```
 
 ## Troubleshooting
 
@@ -98,6 +117,10 @@ If you encounter issues:
 2. Verify your system meets the requirements
 3. Ensure Nginx configuration is correct: `nginx -t`
 4. Check ModSecurity logs for rule violations
+   ```sh
+      sudo tail -f /var/log/modsec_audit.log
+   ```
+
 
 ## Security Considerations
 
