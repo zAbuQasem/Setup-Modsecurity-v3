@@ -102,8 +102,13 @@ After running the script, you need to enable ModSecurity in your Nginx configura
    ```
 
 ### Testing ModSecurity
-
 To test if ModSecurity is working correctly, you can use the following `curl` command with a test payload:
+
+```bash
+curl http://localhost --data "testparam=<script>alert(1)</script>"
+```
+
+If the response returns a `403 Forbidden` status, it indicates that ModSecurity is functioning as expected.
 
 ```bash
 curl http://localhost --data "testparam=<script>alert(1)</script>"
