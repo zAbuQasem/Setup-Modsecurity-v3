@@ -90,11 +90,6 @@ After running the script, you need to enable ModSecurity in your Nginx configura
 
 5. Test the Nginx server by accessing it through a web browser using its public IP address.
 
-## File Structure
-
-- `setup-modsec.sh`: Main installation script
-- `README.md`: This documentation file
-
 ## Troubleshooting
 
 If you encounter issues:
